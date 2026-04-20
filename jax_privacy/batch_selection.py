@@ -374,9 +374,7 @@ class BMinSepSampling(BatchSelectionStrategy):
     truncated_batch_size: If set, we truncate the batch to this size. To
       maintain that the participation of examples is independent prior to
       truncation, examples which were sampled and then truncated are still
-      excluded in the next min_sep - 1 iterations. Privacy analysis for this
-      case is currently unsupported except via the reduction in
-      https://journalprivacyconfidentiality.org/index.php/jpc/article/view/998/792.
+      excluded in the next min_sep - 1 iterations.
   """
 
   sampling_prob: float
