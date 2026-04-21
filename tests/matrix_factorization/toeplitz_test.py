@@ -523,14 +523,21 @@ class ToeplitzOptimizationTest(parameterized.TestCase):
         toeplitz.loss(strategy_coef=coef1, n=16),
     )
 
-  @parameterized.named_parameters((f'{k=}', k) for k in [1, 2, 4, 8, 16])
+  @parameterized.product(
+      max_participations=[1, 2, 4, 8, 16],
+      momentum=[None, 0.0, 0.9],
+  )
   def test_optimize_banded_inverse_toeplitz_improves_over_bisr(
-      self, max_participations
+      self, max_participations, momentum
   ):
     n = 128
     min_sep = n // max_participations
     num_bands = 8
-    workload_coef = jnp.ones(n)
+    if momentum is None:
+      workload_coef = None
+    else:
+      decay = jnp.asarray(momentum ** np.arange(n))
+      workload_coef = toeplitz.multiply(jnp.ones(n), decay, n=n)
 
     optimized_coef = toeplitz.optimize_banded_inverse_toeplitz(
         n=n,
@@ -545,6 +552,10 @@ class ToeplitzOptimizationTest(parameterized.TestCase):
 
     self.assertTrue(jnp.all(jnp.isfinite(optimized_coef)))
     np.testing.assert_allclose(optimized_coef[0], 1.0, atol=1e-6)
+
+    # Make per_query_error handle banded inverse coefficients correctly.
+    if workload_coef is None:
+      workload_coef = jnp.ones(n)
 
     optimized_error = jnp.mean(
         toeplitz.per_query_error(

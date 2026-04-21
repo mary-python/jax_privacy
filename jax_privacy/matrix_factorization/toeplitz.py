@@ -762,8 +762,7 @@ def banded_inverse_square_root_noising_coefs(
     The coefficients of the lower-triangular Toeplitz noising matrix $C^{-1}$.
   """
   if workload_coef is None:
-    k = jnp.arange(num_bands)
-    return jnp.cumprod(((k - 3 / 2) / k).at[0].set(1.0))
+    return optimal_max_error_noising_coefs(num_bands)
 
   workload_coef = pad_coefs_to_n(workload_coef, num_bands)
   sqrt_coefs = jnp.zeros(num_bands, dtype=workload_coef.dtype)
@@ -789,24 +788,33 @@ def compute_banded_inverse_sensitivity_squared(
   matrix $C^{-1}$, computes the implied strategy coefficients for $C$, and then
   estimates the min-separation sensitivity of $C$.
 
-  If the absolute strategy coefficients are non-increasing, this uses the
-  closed-form Toeplitz sensitivity computation in
-  `minsep_sensitivity_squared`. Otherwise, if `use_matrix_upper_bound` is
-  False, it projects the absolute strategy coefficients onto the smallest
-  non-increasing majorant and uses that to obtain an upper bound. If
-  `use_matrix_upper_bound` is True, it materializes the Toeplitz matrix with
-  absolute strategy coefficients and uses the generic sensitivity upper bound
-  from `sensitivity.py`. This path is computationally heavier.
+  Tightness depends on the sign and monotonicity of the implied strategy
+  coefficients. If the strategy coefficients are positive and
+  non-increasing, this uses the closed-form Toeplitz sensitivity computation in
+  `minsep_sensitivity_squared`, which is exact.
+
+  Otherwise, the behavior depends on `use_matrix_upper_bound`:
+
+  - If False, the absolute strategy coefficients are projected onto the
+    smallest non-increasing majorant, and the resulting sequence is used to
+    compute an upper bound. This bound is exact when the strategy coefficients
+    are positive and decreasing, but may be looser when they are not
+    non-increasing.
+
+  - If True, the Toeplitz matrix formed from the absolute strategy
+    coefficients is materialized, and the generic sensitivity upper bound from
+    `sensitivity.py` is used instead. This is more computationally expensive,
+    but gives a tighter bound when the sequence is not non-increasing, and is
+    exact when the strategy coefficients are positive.
 
   Args:
-    n: The size of the implied Toeplitz matrix.
-    noising_coef: The Toeplitz coefficients of the noising matrix $C^{-1}$.
-    min_sep: The minimum separation between participations.
+    n: Size of the implied Toeplitz matrix.
+    noising_coef: Toeplitz coefficients of the noising matrix $C^{-1}$.
+    min_sep: Minimum separation between participations.
     max_participations: Optional cap on the number of participations.
     use_matrix_upper_bound: Whether to use the generic matrix-based upper bound
-      when the absolute strategy coefficients are not non-increasing. This is
-      computationally heavier than the default projected-coefficient upper
-      bound.
+      instead of the projected-coefficient upper bound when the absolute
+      strategy coefficients are not non-increasing.
 
   Returns:
     The squared b-min-separated sensitivity of the implied strategy matrix $C$.
@@ -845,6 +853,7 @@ def optimize_banded_inverse_toeplitz(
     max_participations: int | None = None,
     max_optimizer_steps: int = 1000,
     reduction_fn: Callable[[jax.Array], jax.Array] = jnp.mean,
+    skip_checks: bool = False,
 ) -> jax.Array:
   """Optimize over banded inverse Toeplitz noising matrices for BandInvMF.
 
@@ -875,6 +884,8 @@ def optimize_banded_inverse_toeplitz(
       Use jnp.mean to optimize mean-squared-error, jnp.max to optimize max
       squared error, or lambda v: v[-1] to optimize last iterate squared error.
       Defaults to jnp.mean.
+    skip_checks: If True, don't perform input verification. It may be
+      necessary to set skip_checks=True when this function is jitted.
 
   Returns:
     The optimized Toeplitz coefficients of the lower-triangular noising
@@ -883,7 +894,8 @@ def optimize_banded_inverse_toeplitz(
   if workload_coef is None:
     workload_coef = jnp.ones(n)
   else:
-    workload_coef = pad_coefs_to_n(workload_coef, n)
+    if not skip_checks and workload_coef.shape[0] != n:
+      raise ValueError(f'{workload_coef.shape[0]=} != {n=}')
 
   def loss_fn(coef: jax.Array) -> jax.Array:
     error = reduction_fn(
@@ -891,7 +903,7 @@ def optimize_banded_inverse_toeplitz(
             noising_coef=coef,
             n=n,
             workload_coef=workload_coef,
-            skip_checks=True,
+            skip_checks=skip_checks,
         )
     )
     sens_squared = compute_banded_inverse_sensitivity_squared(
