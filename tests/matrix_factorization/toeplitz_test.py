@@ -553,10 +553,6 @@ class ToeplitzOptimizationTest(parameterized.TestCase):
     self.assertTrue(jnp.all(jnp.isfinite(optimized_coef)))
     np.testing.assert_allclose(optimized_coef[0], 1.0, atol=1e-6)
 
-    # Make per_query_error handle banded inverse coefficients correctly.
-    if workload_coef is None:
-      workload_coef = jnp.ones(n)
-
     optimized_error = jnp.mean(
         toeplitz.per_query_error(
             noising_coef=optimized_coef,

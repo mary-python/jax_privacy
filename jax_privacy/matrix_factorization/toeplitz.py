@@ -423,6 +423,7 @@ def per_query_error(
   else:
     assert noising_coef is not None
     noising_coef, n = _reconcile(noising_coef, n)
+    noising_coef = jnp.pad(noising_coef, (0, n - noising_coef.shape[0]))
     if workload_coef is None:
       # This is more efficient than explicitly multiplying by the prefix matrix.
       B_coef = jnp.cumsum(noising_coef)
@@ -853,7 +854,6 @@ def optimize_banded_inverse_toeplitz(
     max_participations: int | None = None,
     max_optimizer_steps: int = 1000,
     reduction_fn: Callable[[jax.Array], jax.Array] = jnp.mean,
-    skip_checks: bool = False,
 ) -> jax.Array:
   """Optimize over banded inverse Toeplitz noising matrices for BandInvMF.
 
@@ -894,7 +894,7 @@ def optimize_banded_inverse_toeplitz(
   if workload_coef is None:
     workload_coef = jnp.ones(n)
   else:
-    if not skip_checks and workload_coef.shape[0] != n:
+    if workload_coef.shape[0] != n:
       raise ValueError(f'{workload_coef.shape[0]=} != {n=}')
 
   def loss_fn(coef: jax.Array) -> jax.Array:
@@ -903,7 +903,7 @@ def optimize_banded_inverse_toeplitz(
             noising_coef=coef,
             n=n,
             workload_coef=workload_coef,
-            skip_checks=skip_checks,
+            skip_checks=False,
         )
     )
     sens_squared = compute_banded_inverse_sensitivity_squared(
